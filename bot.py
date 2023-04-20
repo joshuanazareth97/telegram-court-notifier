@@ -1,47 +1,12 @@
+import json
 import os
 import time
 import requests
 from telegram import Update
-from telegram.ext import Application, ContextTypes, CommandHandler
+from telegram.ext import Application, ContextTypes, CommandHandler, CallbackContext
 from dotenv import load_dotenv
 
 import asyncio
-
-dummy = [
-  {
-            "court_no": "1",
-            "court_name": "C1",
-            "item_no": "23",
-            "registration_number_display": "",
-            "petitioner_name": "",
-            "respondent_name": "",
-            "bg_class": " bg-alice ",
-            "item_status": "HEARING",
-            "court_message": ""
-        },
-        {
-            "court_no": "2",
-            "court_name": "C2",
-            "item_no": "2",
-            "registration_number_display": "SLP(Crl) No. 6555/2019",
-            "petitioner_name": "kalyan kumar dubey ",
-            "respondent_name": " the state of bihar",
-            "bg_class": " bg-alice ",
-            "item_status": "HEARING",
-            "court_message": ""
-        },
-        {
-            "court_no": "3",
-            "court_name": "C3",
-            "item_no": "4",
-            "registration_number_display": "SLP(Crl) No. 1254/2023",
-            "petitioner_name": "abhijit mandal ",
-            "respondent_name": " the state of west bengal",
-            "bg_class": " bg-alice ",
-            "item_status": "HEARING",
-            "court_message": "ITEM NOS.47 AND 49 WILL BE TAKEN AFTER ITEM NO. 32"
-        }
-]
 
 #### CONFIG ####
 load_dotenv()
@@ -62,32 +27,41 @@ users = []
 failed_attempts = 0
 FAIL_THRESHOLD = 15
 
-def handle_message(update, context):
+async def handle_message(update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
     if chat_id not in users:
       users.append(chat_id)
 
-    message_text = update.message.text
+    case_nos = context.args[1:]
+    court_no = context.args[0]
+    print(case_nos, court_no)
+    if not court_no or not court_no[0] == "C":
+      await context.bot.send_message(chat_id=chat_id, text="Provide court number")
+    elif not case_nos:
+      await context.bot.send_message(chat_id=chat_id, text="Provide case numbers")
+    else:
+      save_config(court_no=court_no,case_numbers=case_nos, chat_id=chat_id)
+      print(case_monitor)
+      await context.bot.send_message(chat_id=chat_id, text=f'You are now monitoring items: \n{", ".join(case_nos)} in {court_no}')
 
-    case_nos = message_text.split(",")
-
-    save_config(case_numbers=case_nos, chat_id=chat_id)
-
-    bot.send_message(chat_id=chat_id, text=f'You are now monitoring: \n{case_nos.join(", ")}')
-
-def save_config(case_numbers: list, chat_id: str):
+def save_config(court_no: str, case_numbers: list, chat_id: str):
     # Check memory and add me to the list of watchers for these cases if I am not present
+  court_monitor = case_monitor.get(court_no, {})
   for case in case_numbers:
-    current_watchers = case_monitor.get(case, [])
+    current_watchers = court_monitor.get(case, [])
     if chat_id in current_watchers:
       continue
-    case_monitor[case] = current_watchers + [chat_id]
-  # persist case_monitor
-  pass
+    court_monitor[case] = current_watchers + [chat_id]
+    case_monitor[court_no] = court_monitor
+    # persist case_monitor
+    with open('monitor.db.json', 'w') as f:
+      json.dump(case_monitor, f)
 
-def retrieve_config(chat_id: str):
-  # save in memory for fast retrieval
-  pass
+def retrieve_config():
+    with open('monitor.db.json', 'r') as f:
+      json_object = json.load(f)
+      for key in json_object:
+        case_monitor[key] = json_object[key]
 
 def process_api_result(data) -> list:
   # this returns a list of dictionaries with:
@@ -138,34 +112,51 @@ def format_message(case: dict) -> str:
   second_line=f"Case No. {case['case_no']} : Now listed in Court {case['court_name']}"
   return f"{first_line if to_display else ''}{second_line}"
 
-def clear_case(case_number: str):
-  case_monitor.pop(case_number)
+def clear_case(court_no:str, case_number: str):
+  case_monitor[court_no].pop(case_number)
+  with open('monitor.db.json', 'w') as f:
+    json.dump(case_monitor, f)
   pass
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await context.bot.send_message(chat_id=update.effective_chat.id, text="I can notify you when cases get listed. Send me a message with /monitor  ")
+    await context.bot.send_message(chat_id=update.effective_chat.id, text="I can notify you when cases get listed. Send me a message with /monitor <Court Name> <Court Case 1> <Court Case 2> ...  ")
 
-async def main():
+async def check_for_cases(context: CallbackContext):
+  result = poll_api()
+  if not result: return None
+  listed_cases = process_api_result(result.json())
+  if not len(listed_cases):
+    print("No cases found yet...")
+  for case in listed_cases:
+    if case["court_name"] not in case_monitor:
+      continue
+    court_monitor = case_monitor[case["court_name"]]
+    chat_ids = court_monitor.get(case["case_no"], [])
+    if chat_ids:
+      print("Case Match!")
+    for id in chat_ids:
+      await context.bot.send_message(chat_id=id, text=format_message(case))
+      clear_case(court_no=case["court_name"],case_number=case["case_no"])
+
+def main():
   # TODO: Find the recced way oof exiting a script like this
+  """Run bot."""
   print("Telegram Case Listing Bot is running...")
+  try:
+    retrieve_config()
+    print(case_monitor)
+  except FileNotFoundError:
+    pass
+  # Create the Application and pass it your bot's token.
+  application = Application.builder().token(BOT_TOKEN).build()
+  application.job_queue.run_repeating(check_for_cases, interval=30)
+  # on different commands - answer in Telegram
+  application.add_handler(CommandHandler(["start", "help"], start))
+  application.add_handler(CommandHandler(["watch", "monitor"], handle_message))
+  # Run the bot until the user presses Ctrl-C
+  application.run_polling()
 
-  while True:
-    time.sleep(10)
-    result = poll_api()
-    if not result: continue
-    listed_cases = process_api_result(result.json())
-    if not len(listed_cases):
-      print("No cases found yet...")
-    for case in listed_cases:
-      if case["case_no"] not in case_monitor:
-        continue
-      chat_ids = case_monitor.get(case["number"], [])
-      for id in chat_ids:
-        bot.send_message(chat_id=id, message=format_message(case))
-      clear_case(case_number=case["case_no"])
 
-    print("\n+++++++++\n")
 
-if __name__ is "__main__":
-  asyncio.run(main())
-
+# if __name__ is "__main__":
+main()
