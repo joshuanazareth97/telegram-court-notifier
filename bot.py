@@ -2,7 +2,7 @@ import json
 import os
 import time
 import requests
-from telegram import Update
+from telegram import Update, Bot
 from telegram.ext import Application, ContextTypes, CommandHandler, CallbackContext
 from dotenv import load_dotenv
 
@@ -11,6 +11,7 @@ import asyncio
 #### CONFIG ####
 load_dotenv()
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD")
 
 API_URL = "https://registry.sci.gov.in/ca_iscdb/index.php?courtListCsv=1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,21,22&request=display_full&requestType=ajax"
 # polling_interval = 60
@@ -96,7 +97,7 @@ def process_api_result(data) -> list:
     return case_list
 
 
-def poll_api():
+def poll_api(bot: Bot):
     response = requests.get(API_URL)
 
     if response.ok:
@@ -142,7 +143,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def check_for_cases(context: CallbackContext):
-    result = poll_api()
+    result = poll_api(bot=context.bot)
     if not result:
         return None
     listed_cases = process_api_result(result.json())
@@ -160,32 +161,48 @@ async def check_for_cases(context: CallbackContext):
             clear_case(court_no=case["court_name"], case_number=case["case_no"])
 
 
-async def format_status():
+def format_status(chat_id: str):
     """Pretty prints the status_monitor dictionary"""
-    i
     return "\n".join(
         [
             f"{court_no}: {', '.join(case_monitor[court_no].keys())}"
             for court_no in case_monitor
         ]
         + [f"\nTotal cases monitored: {len(case_monitor)}"]
+        + [f"\nCurrent chat_id: {chat_id}"]
     )
 
 
 async def status(update, context: ContextTypes.DEFAULT_TYPE):
     """Sends a message with the current cases being monitored"""
-    if context.args:
-        password = context.args[0]
-        if not password or password != os.getenv("ADMIN_PASSWORD"):
-            await context.bot.send_message(
-                chat_id=update.message.chat_id,
-                text="You are not authorized to view this information.",
-            )
-            return None
-    await context.bot.send_message(
-        chat_id=update.message.chat_id,
-        text=format_status(),
-    )
+    if await check_admin_password(update, context):
+        await context.bot.send_message(
+            chat_id=update.message.chat_id,
+            text=format_status(chat_id=update.message.chat_id),
+        )
+
+
+async def clear(update, context: ContextTypes.DEFAULT_TYPE):
+    """Clears the current case_monitor dictionary"""
+    if await check_admin_password(update, context):
+        case_monitor.clear()
+        with open("monitor.db.json", "w") as f:
+            json.dump(case_monitor, f)
+        await context.bot.send_message(
+            chat_id=update.message.chat_id, text="Case monitor cleared."
+        )
+
+
+async def check_admin_password(update, context: ContextTypes.DEFAULT_TYPE):
+    """Checks if the admin password is correct"""
+    if context.args and context.args[0] == ADMIN_PASSWORD:
+        return True
+    else:
+        await context.bot.send_message(
+            chat_id=update.message.chat_id,
+            text="You are not authorized to perform this action.",
+        )
+        return False
 
 
 def main():
@@ -204,6 +221,7 @@ def main():
     application.add_handler(CommandHandler(["start", "help"], start))
     application.add_handler(CommandHandler(["watch", "monitor"], handle_message))
     application.add_handler(CommandHandler(["status"], status))
+    application.add_handler(CommandHandler(["clear"], clear))
     # Run the bot until the user presses Ctrl-C
     application.run_polling()
 
