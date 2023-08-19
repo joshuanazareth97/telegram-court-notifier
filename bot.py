@@ -35,14 +35,12 @@ async def handle_message(update, context: ContextTypes.DEFAULT_TYPE):
 
     case_nos = context.args[1:]
     court_no = context.args[0]
-    print(case_nos, court_no)
     if not court_no or not court_no[0] == "C":
         await context.bot.send_message(chat_id=chat_id, text="Provide court number")
     elif not case_nos:
         await context.bot.send_message(chat_id=chat_id, text="Provide case numbers")
     else:
         save_config(court_no=court_no, case_numbers=case_nos, chat_id=chat_id)
-        print(case_monitor)
         await context.bot.send_message(
             chat_id=chat_id,
             text=f'You are now monitoring items: \n{", ".join(case_nos)} in {court_no}',
@@ -165,6 +163,7 @@ async def check_for_cases(context: CallbackContext):
 
 async def format_status():
     """Pretty prints the status_monitor dictionary"""
+    i
     return "\n".join(
         [
             f"{court_no}: {', '.join(case_monitor[court_no].keys())}"
@@ -174,10 +173,18 @@ async def format_status():
     )
 
 
-async def status():
+async def status(update, context: ContextTypes.DEFAULT_TYPE):
     """Sends a message with the current cases being monitored"""
+    if context.args:
+        password = context.args[0]
+        if not password or password != os.getenv("ADMIN_PASSWORD"):
+            await context.bot.send_message(
+                chat_id=update.message.chat_id,
+                text="You are not authorized to view this information.",
+            )
+            return None
     await context.bot.send_message(
-        chat_id=update.effective_chat.id,
+        chat_id=update.message.chat_id,
         text=format_status(),
     )
 
@@ -197,6 +204,7 @@ def main():
     # on different commands - answer in Telegram
     application.add_handler(CommandHandler(["start", "help"], start))
     application.add_handler(CommandHandler(["watch", "monitor"], handle_message))
+    application.add_handler(CommandHandler(["status"], status))
     # Run the bot until the user presses Ctrl-C
     application.run_polling()
 
