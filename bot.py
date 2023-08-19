@@ -20,7 +20,6 @@ polling_interval = 3
 
 # this has a mapping of case number to chat_ids that want to monitor that case
 case_monitor = {}
-
 users = []
 
 # notify when failing repeatedly
@@ -109,7 +108,7 @@ def poll_api():
         for user in users:
             bot.send_message(
                 chat_id=user,
-                text=f"Data retrieval has failed over the past {FAIL_THRESHOLD} mins. Please contact Joshua to resolve this.",
+                text=f"Data retrieval has failed over the past {FAIL_THRESHOLD} attempts. Please contact Joshua to resolve this.",
             )
             return None
 
