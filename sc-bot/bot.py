@@ -10,7 +10,7 @@ import asyncio
 
 #### CONFIG ####
 load_dotenv()
-BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+BOT_TOKEN = os.getenv("SC_TELEGRAM_BOT_TOKEN")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD")
 
 API_URL = "https://registry.sci.gov.in/ca_iscdb/index.php?courtListCsv=1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,21,22&request=display_full&requestType=ajax"
@@ -68,7 +68,7 @@ def retrieve_config():
             case_monitor[key] = json_object[key]
 
 
-def process_api_result(data) -> list:
+def process_sc_api_result(data) -> list:
     # this returns a list of dictionaries with:
     # case metadata, case number , court number
     court_list = data["listedItemDetails"]
@@ -146,7 +146,7 @@ async def check_for_cases(context: CallbackContext):
     result = poll_api(bot=context.bot)
     if not result:
         return None
-    listed_cases = process_api_result(result.json())
+    listed_cases = process_sc_api_result(result.json())
     if not len(listed_cases):
         print("No cases found yet...")
     for case in listed_cases:

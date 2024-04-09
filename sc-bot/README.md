@@ -1,6 +1,6 @@
 # Court Case Monitor
 
-This is a Python script that monitors court cases listed in the Supreme Court of India and sends a message to Telegram if there are any updates. It is based on the Telegram Bot API.
+This is a set of Python scripts that monitor court cases listed in either the Supreme Court of India or Delhi High Court and sends a message to Telegram if there are any updates. It is based on the Telegram Bot API.
 
 ## Installation
 
@@ -20,7 +20,7 @@ You will also need to obtain a Telegram Bot API token by following the instructi
 
 ## Configuration
 
-Copy the `.env.example` file to `.env` and set the value of `TELEGRAM_BOT_TOKEN` to the token you obtained from BotFather.
+Copy the `.env.example` file to `.env` and set the value of `SC_TELEGRAM_BOT_TOKEN` to the token you obtained from BotFather.
 
 Next, run the script:
 
