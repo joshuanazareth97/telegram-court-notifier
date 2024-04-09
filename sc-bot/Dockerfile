@@ -5,7 +5,7 @@ FROM python:3.8-slim-buster
 WORKDIR /app
 
 # Copy the Pipfile and Pipfile.lock to the container
-COPY Pipfile* ./
+COPY ../Pipfile* ./
 
 # Install Pipenv
 RUN pip install --no-cache-dir pipenv
