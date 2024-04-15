@@ -4,15 +4,17 @@ import requests
 from telegram import Update, Bot
 from telegram.ext import Application, ContextTypes, CommandHandler, CallbackContext
 from dotenv import load_dotenv
+import re
+from bs4 import BeautifulSoup
 
 #### CONFIG ####
 load_dotenv()
 BOT_TOKEN = os.getenv("DHC_TELEGRAM_BOT_TOKEN")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD")
 
-API_URL = "https://registry.sci.gov.in/ca_iscdb/index.php?courtListCsv=1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,21,22&request=display_full&requestType=ajax"
-# polling_interval = 60
-polling_interval = 3
+API_URL = "https://delhihighcourt.nic.in/display_board"
+
+polling_interval = 30
 
 #### MEMORY STORE ####
 
@@ -27,15 +29,20 @@ FAIL_THRESHOLD = 15
 
 async def handle_message(update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.message.chat_id
+    if not context.args:
+        await context.bot.send_message(
+            chat_id=chat_id, text="Provide court number and case number(s)"
+        )
+        return
     if chat_id not in users:
         users.append(chat_id)
 
     case_nos = context.args[1:]
     court_no = context.args[0]
-    if not court_no or not court_no[0] == "C":
+    if not court_no or not re.search("\d+", court_no):
         await context.bot.send_message(chat_id=chat_id, text="Provide court number")
-    elif not case_nos:
-        await context.bot.send_message(chat_id=chat_id, text="Provide case numbers")
+    elif not case_nos or not all([re.search("[A-Za-z]\d+", case) for case in case_nos]):
+        await context.bot.send_message(chat_id=chat_id, text="Provide case number(s)")
     else:
         save_config(court_no=court_no, case_numbers=case_nos, chat_id=chat_id)
         await context.bot.send_message(
@@ -65,33 +72,36 @@ def retrieve_config():
             case_monitor[key] = json_object[key]
 
 
-def process_sc_api_result(data) -> list:
+def process_delhi_hc_api_result(html) -> list:
     # this returns a list of dictionaries with:
     # case metadata, case number , court number
-    court_list = data["listedItemDetails"]
-    case_list = []
+    soup = BeautifulSoup(html, "html.parser")
+    table = soup.find("table", class_="table table-bordered table-hover table-striped")
+    headers = [header.text.strip().lower() for header in table.find_all("th")]
 
-    for court in court_list:
-        status = court.get("item_status", "")
-        if status != "HEARING":
-            continue
-        name = court.get("court_name", "")
-        case_no = court.get("item_no", "")
-        respondent_name = court.get("respondent_name", "")
-        petitioner_name = court.get("petitioner_name", "")
-        reg_no = court.get("registration_number_display", "")
-        case_list.append(
-            {
-                "status": status,
-                "court_name": name,
-                "respondent_name": respondent_name,
-                "petitioner_name": petitioner_name,
-                "case_no": case_no,
-                "reg_no": reg_no,
-            }
-        )
+    data_list = []
+    # skip the first row as it contains headers
+    rows = table.find_all("tr")[1:]
 
-    return case_list
+    for row in rows:
+        row_data = {}
+        cells = row.find_all("td")
+        in_session = True
+        for index, cell in enumerate(cells):
+            # is this a court cell, or a case cell?
+            if cell_data := cell.find("a"):
+                cell_text = cell_data.text.strip()
+                row_data[headers[index]] = cell_text
+                row_data["url"] = cell_data["href"]
+            else:
+                cell_data = cell.text.strip()
+                if cell_data == 'Not in Session':
+                    in_session = False
+                    continue
+                row_data[headers[index]] = cell_data.split(" ")[0]
+        if in_session: data_list.append(row_data)
+
+    return data_list
 
 
 def poll_api(bot: Bot):
@@ -113,16 +123,8 @@ def poll_api(bot: Bot):
 
 def format_message(case: dict) -> str:
     # takes in a case dict and returns a formatted string
-    # <Case Name>
     # <Case Number> now listed in <Court No>
-    first_line = (
-        f"{case['reg_no']} ({case['petitioner_name']} v. {case['respondent_name']})\n"
-    )
-    to_display = case["reg_no"] and case["respondent_name"] and case["petitioner_name"]
-    second_line = (
-        f"Case No. {case['case_no']} : Now listed in Court {case['court_name']}"
-    )
-    return f"{first_line if to_display else ''}{second_line}"
+    return f"Court {case['court']}: Now hearing Case No. {case['item']}"
 
 
 def clear_case(court_no: str, case_number: str):
@@ -143,19 +145,22 @@ async def check_for_cases(context: CallbackContext):
     result = poll_api(bot=context.bot)
     if not result:
         return None
-    listed_cases = process_sc_api_result(result.json())
+    listed_cases = process_delhi_hc_api_result(result.text)
     if not len(listed_cases):
         print("No cases found yet...")
     for case in listed_cases:
-        if case["court_name"] not in case_monitor:
+        if case["court"] not in case_monitor:
             continue
-        court_monitor = case_monitor[case["court_name"]]
-        chat_ids = court_monitor.get(case["case_no"], [])
+        court_monitor = case_monitor[case["court"]]
+        case_no = case["item"]
+        if not case_no:
+            continue
+        chat_ids = court_monitor.get(case_no, [])
         if chat_ids:
             print("Case Match!")
         for id in chat_ids:
             await context.bot.send_message(chat_id=id, text=format_message(case))
-            clear_case(court_no=case["court_name"], case_number=case["case_no"])
+            clear_case(court_no=case["court"], case_number=case["item"])
 
 
 def format_status(chat_id: str):
@@ -213,7 +218,7 @@ def main():
         pass
     # Create the Application and pass it your bot's token.
     application = Application.builder().token(BOT_TOKEN).build()
-    application.job_queue.run_repeating(check_for_cases, interval=30)
+    application.job_queue.run_repeating(check_for_cases, interval=10)
     # on different commands - answer in Telegram
     application.add_handler(CommandHandler(["start", "help"], start))
     application.add_handler(CommandHandler(["watch", "monitor"], handle_message))
