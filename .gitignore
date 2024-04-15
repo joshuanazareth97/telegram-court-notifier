@@ -3,3 +3,5 @@
 
 # ignore db files
 *.db.json
+
+.venv
