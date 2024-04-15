@@ -218,7 +218,7 @@ def main():
         pass
     # Create the Application and pass it your bot's token.
     application = Application.builder().token(BOT_TOKEN).build()
-    application.job_queue.run_repeating(check_for_cases, interval=10)
+    application.job_queue.run_repeating(check_for_cases, interval=polling_interval)
     # on different commands - answer in Telegram
     application.add_handler(CommandHandler(["start", "help"], start))
     application.add_handler(CommandHandler(["watch", "monitor"], handle_message))
