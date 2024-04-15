@@ -1,3 +1,5 @@
+# Delhi High Court
+
 ## Installation
 
 To use this script, you need to install some Python libraries:
@@ -16,7 +18,7 @@ You will also need to obtain a Telegram Bot API token by following the instructi
 
 ## Configuration
 
-Copy the `.env.example` file to `.env` and set the value of `SC_TELEGRAM_BOT_TOKEN` to the token you obtained from BotFather.
+Copy the `.env.example` file to `.env` and set the value of `DHC_TELEGRAM_BOT_TOKEN` to the token you obtained from BotFather.
 
 Next, run the script:
 
