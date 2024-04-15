@@ -1,0 +1,16 @@
+[tool.poetry]
+name = "telegram-court-notifier"
+version = "0.1.0"
+description = ""
+authors = ["Joshua Nazareth <joshuanazareth97@gmail.com>"]
+package-mode = false
+
+[tool.poetry.dependencies]
+python = "^3.7"
+python-telegram-bot = { version = "*", extras = ["job-queue"] }
+requests = "*"
+python-dotenv = "*"
+bs4 = "^0.0.2"
+
+[tool.poetry.dev-dependencies]
+
