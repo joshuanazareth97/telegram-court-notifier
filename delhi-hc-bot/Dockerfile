@@ -1,17 +1,20 @@
 # Use an official Python runtime as a parent image
 FROM python:3.8-slim-buster
 
+
 # Set the working directory to /app
 WORKDIR /app
 
 # Copy the Pipfile and Pipfile.lock to the container
-COPY ../Pipfile* ./
+COPY pyproject.toml /app/
 
-# Install Pipenv
-RUN pip install --no-cache-dir pipenv
+# Install Poetry
+RUN pip install --user poetry
+ENV PATH="${PATH}:/root/.local/bin"
+RUN poetry config virtualenvs.create false
 
 # Install the dependencies specified in the Pipfile
-RUN pipenv install --deploy --system
+RUN poetry install --no-interaction --no-ansi
 
 # Copy the rest of the application code into the container
 COPY . .
